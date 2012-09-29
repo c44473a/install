@@ -1,0 +1,78 @@
+#!/bin/bash
+
+function main {
+        print "download source (1/6)"
+        source=$(download_last_stable_source)
+
+        print "extract source: $source (2/6)"
+        extract_source $source
+
+        print "uninstall privius version if exist (3/6)"
+        uninstall
+
+        print "install source: $source (4/6)"
+        install $source
+
+        print "configure nginx (5/6)"
+        configure
+
+        print "test nginx (6/6)"
+        test
+
+        print "$source installed"
+}
+
+
+
+function download_last_stable_source {
+        local NGINX_URL="http://nginx.org/download/"
+        local lastStableVersion=$(wget -O- http://nginx.org/index.rss | grep -B 1 "stable version" | sort -V | tail -1 | grep -o "nginx-[0-9.]*")
+        local sourceArchive="$lastStableVersion.tar.gz"
+        wget "$NGINX_URL/$sourceArchive"
+        echo "$lastStableVersion"
+}
+
+function extract_source {
+        local archive="$1.tar.gz"
+        tar -xvf "$archive"
+        rm "$archive"
+}
+
+function uninstall {
+        rm "$OPENSHIFT_RUNTIME_DIR/sbin/nginx"
+        mv "$OPENSHIFT_RUNTIME_DIR/conf/nginx.conf" "$OPENSHIFT_RUNTIME_DIR/conf/nginx.conf.backup"  
+
+}
+
+function install {
+        local nginxSource=$1
+        cd "$nginxSource"
+
+        ./configure --prefix="$OPENSHIFT_RUNTIME_DIR" --without-http_rewrite_module
+        make
+        make install
+        make clean
+
+        cd ".."
+        rm -r "$nginxSource"
+}
+
+function configure {
+        local tempConfig="nginx.conf.temp"
+        cat "$OPENSHIFT_RUNTIME_DIR/conf/nginx.conf" | sed "s/listen.*/listen	$OPENSHIFT_INTERNAL_IP:$OPENSHIFT_INTERNAL_PORT;/g" > "$tempConfig"
+        rm "$OPENSHIFT_RUNTIME_DIR/conf/nginx.conf"
+        mv "$tempConfig" "$OPENSHIFT_RUNTIME_DIR/conf/nginx.conf"
+}
+
+function test {
+        $OPENSHIFT_RUNTIME_DIR/sbin/nginx -v
+}
+
+function print {
+        echo -e "\033[0;32m"
+        echo "$1"
+        echo -e "\033[0m"
+}
+
+
+main
